@@ -1,9 +1,55 @@
 from ctypes import sizeof, addressof
 import threading
+import time
+from enum import IntEnum, unique
 import serial
-from serial_msgs import SerialMsg
+
 from crccheck.crc import Crc32Mpeg2
+
+from serial_msgs import SerialMsg
 from aemnet_msgs import msg_00, msg_03, msg_04
+
+@unique
+class DatabaseColumn(IntEnum):
+    TIMESTAMP = 0
+    SEQ_NUM = 1
+    RPM = 2
+    THROTTLE = 3
+    INTAKE_TEMP = 4
+    COOLANT_TEMP = 5
+    AFR1 = 6
+    AFR2 = 7
+    VEHICLE_SPEED = 8
+    GEAR = 9
+    BATTERY_VOLTAGE = 10
+    MANIFOLD_PRESSURE = 11
+    FUEL_PRESSURE = 12
+    NUM_VALUES = 13
+
+columns = [0.0] * int(DatabaseColumn.NUM_VALUES)
+columns_lock = threading.Lock()
+
+def process_msg_00(data):
+    d = msg_00.from_address(addressof(data))
+    columns[DatabaseColumn.RPM] = d.get_rpm()
+    columns[DatabaseColumn.THROTTLE] = d.get_throttle()
+    columns[DatabaseColumn.INTAKE_TEMP] = d.get_intake_temp()
+    columns[DatabaseColumn.COOLANT_TEMP] = d.get_coolant_temp()
+
+def process_msg_03(data):
+    d = msg_03.from_address(addressof(data))
+    columns[DatabaseColumn.AFR1] = d.get_afr1()
+    columns[DatabaseColumn.AFR2] = d.get_afr2()
+    columns[DatabaseColumn.VEHICLE_SPEED] = d.get_vehicle_speed
+    columns[DatabaseColumn.GEAR] = d.get_gear()
+    columns[DatabaseColumn.BATTERY_VOLTAGE] = d.get_battery_voltage()
+
+def process_msg_04(data):
+    d = msg_04.from_address(addressof(data))
+    columns[DatabaseColumn.MANIFOLD_PRESSURE] = d.get_manifold_pressure()
+    columns[DatabaseColumn.FUEL_PRESSURE] = d.get_fuel_pressure()
+
+msg_processing_fns = {0x1f0a000: process_msg_00, 0x1f0a003: process_msg_03, 0x1f0a004: process_msg_04}
 
 port = serial.Serial("/dev/serial0", baudrate=115200)
 # feedface in reverse
@@ -34,23 +80,25 @@ def read_msg():
         if crc == msg.crc32:
             return msg
 
-def main():
+def serial_thread_fn():
     while True:
         m = read_msg()
-        print(m.seq_number)
-        print(m.num_msgs)
+        columns_lock.acquire()
         for i in range(m.num_msgs):
-            ID = m.msgs[i].id
-            print(hex(ID))
-            if ID == 0x1f0a000:
-                d = msg_00.from_address(addressof(m.msgs[i].data))
-                print(d.get_rpm(), d.get_throttle(), d.get_intake_temp(), d.get_coolant_temp())
-            elif ID == 0x1f0a003:
-                d = msg_03.from_address(addressof(m.msgs[i].data))
-                print(d.get_afr1(), d.get_afr2(), d.get_vehicle_speed(), d.get_gear(), d.get_ign_timing(), d.get_battery_voltage())
-            elif ID == 0x1f0a004:
-                d = msg_04.from_address(addressof(m.msgs[i].data))
-                print(d.get_manifold_pressure(), d.get_ve(), d.get_fuel_pressure(), d.get_oil_pressure(), d.get_afr_target())
+            msg_id = m.msgs[i].id
+            fn = msg_processing_fns.get(msg_id)
+            if fn is not None:
+                msg_data = m.msgs[i].data
+                fn(msg_data)
+        columns_lock.release()
+        time.sleep(0.005)
+
+def main():
+    serial_thread = threading.Thread(target=serial_thread_fn, daemon=True)
+    serial_thread.start()
+    while True:
+        print(columns[DatabaseColumn.RPM])
+        time.sleep(0.5)
 
 if __name__ == "__main__":
     main()
