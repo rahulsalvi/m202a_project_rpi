@@ -1,6 +1,7 @@
 from ctypes import sizeof, addressof
 import threading
 import time
+import sqlite3
 from enum import IntEnum, unique
 import serial
 
@@ -40,7 +41,7 @@ def process_msg_03(data):
     d = msg_03.from_address(addressof(data))
     columns[DatabaseColumn.AFR1] = d.get_afr1()
     columns[DatabaseColumn.AFR2] = d.get_afr2()
-    columns[DatabaseColumn.VEHICLE_SPEED] = d.get_vehicle_speed
+    columns[DatabaseColumn.VEHICLE_SPEED] = d.get_vehicle_speed()
     columns[DatabaseColumn.GEAR] = d.get_gear()
     columns[DatabaseColumn.BATTERY_VOLTAGE] = d.get_battery_voltage()
 
@@ -93,12 +94,51 @@ def serial_thread_fn():
         columns_lock.release()
         time.sleep(0.005)
 
+def create_db_connection():
+    file_time = time.strftime("%Y-%m-%d_%H-%M.db")
+    conn = sqlite3.connect(file_time)
+    return conn
+
+def db_thread_fn():
+    conn = create_db_connection()
+    c = conn.cursor()
+    c.execute('''CREATE TABLE data
+                 (timestamp bigint,
+                  sequence_number bigint,
+                  rpm float,
+                  throttle float,
+                  intake_temp float,
+                  coolant_temp float,
+                  afr1 float,
+                  afr2 float,
+                  vehicle_speed float,
+                  gear float,
+                  battery_voltage float,
+                  manifold_pressure float,
+                  fuel_pressure float)''')
+    conn.commit()
+    seq_num = 0
+    while True:
+        columns_lock.acquire()
+        columns[DatabaseColumn.TIMESTAMP] = int(time.time() * 1000)
+        columns[DatabaseColumn.SEQ_NUM] = seq_num
+        c.execute("INSERT INTO data VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", tuple(columns))
+        columns_lock.release()
+        conn.commit()
+        seq_num = seq_num + 1
+        time.sleep(0.5)
+
 def main():
     serial_thread = threading.Thread(target=serial_thread_fn, daemon=True)
     serial_thread.start()
-    while True:
-        print(columns[DatabaseColumn.RPM])
-        time.sleep(0.5)
+    database_thread = threading.Thread(target=db_thread_fn, daemon=True)
+    database_thread.start()
+    try:
+        while True:
+            print(columns[DatabaseColumn.RPM])
+            time.sleep(0.5)
+    except KeyboardInterrupt:
+        print("Exiting")
 
 if __name__ == "__main__":
     main()
