@@ -2,6 +2,7 @@ from ctypes import sizeof, addressof
 import threading
 import time
 import sqlite3
+import socket
 from enum import IntEnum, unique
 import serial
 
@@ -9,6 +10,7 @@ from crccheck.crc import Crc32Mpeg2
 
 from serial_msgs import SerialMsg
 from aemnet_msgs import msg_00, msg_03, msg_04
+from network_msgs import VehicleDataMsg
 
 @unique
 class DatabaseColumn(IntEnum):
@@ -28,6 +30,8 @@ class DatabaseColumn(IntEnum):
     NUM_VALUES = 13
 
 columns = [0.0] * int(DatabaseColumn.NUM_VALUES)
+columns[DatabaseColumn.TIMESTAMP] = 0
+columns[DatabaseColumn.SEQ_NUM] = 0
 columns_lock = threading.Lock()
 
 def process_msg_00(data):
@@ -128,16 +132,45 @@ def db_thread_fn():
         seq_num = seq_num + 1
         time.sleep(0.5)
 
+def data_network_send_thread_fn(sock):
+    udp_ip = "10.0.0.2"
+    udp_port = 2718
+    while True:
+        m = VehicleDataMsg()
+        columns_lock.acquire()
+        m.timestamp = columns[DatabaseColumn.TIMESTAMP]
+        m.seq_number = columns[DatabaseColumn.SEQ_NUM]
+        m.rpm = columns[DatabaseColumn.RPM]
+        m.throttle = columns[DatabaseColumn.THROTTLE]
+        m.intake_temp = columns[DatabaseColumn.INTAKE_TEMP]
+        m.coolant_temp = columns[DatabaseColumn.COOLANT_TEMP]
+        m.afr1 = columns[DatabaseColumn.AFR1]
+        m.afr2 = columns[DatabaseColumn.AFR2]
+        m.vehicle_speed = columns[DatabaseColumn.VEHICLE_SPEED]
+        m.gear = columns[DatabaseColumn.GEAR]
+        m.battery_voltage = columns[DatabaseColumn.BATTERY_VOLTAGE]
+        m.manifold_pressure = columns[DatabaseColumn.MANIFOLD_PRESSURE]
+        m.fuel_pressure = columns[DatabaseColumn.FUEL_PRESSURE]
+        columns_lock.release()
+        sock.sendto(bytes(m), (udp_ip, udp_port))
+        time.sleep(2.0)
+
 def main():
     serial_thread = threading.Thread(target=serial_thread_fn, daemon=True)
     serial_thread.start()
     database_thread = threading.Thread(target=db_thread_fn, daemon=True)
     database_thread.start()
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    data_network_send_thread = threading.Thread(target=data_network_send_thread_fn, args=(sock,), daemon=True)
+    data_network_send_thread.start()
+
     try:
         while True:
             print(columns[DatabaseColumn.RPM])
             time.sleep(0.5)
     except KeyboardInterrupt:
+        sock.close()
         print("Exiting")
 
 if __name__ == "__main__":
