@@ -3,7 +3,6 @@ import threading
 import time
 import sqlite3
 import socket
-from enum import IntEnum, unique
 import serial
 
 from crccheck.crc import Crc32Mpeg2
@@ -11,23 +10,7 @@ from crccheck.crc import Crc32Mpeg2
 from serial_msgs import SerialMsg
 from aemnet_msgs import msg_00, msg_03, msg_04
 from network_msgs import VehicleDataMsg
-
-@unique
-class DatabaseColumn(IntEnum):
-    TIMESTAMP = 0
-    SEQ_NUM = 1
-    RPM = 2
-    THROTTLE = 3
-    INTAKE_TEMP = 4
-    COOLANT_TEMP = 5
-    AFR1 = 6
-    AFR2 = 7
-    VEHICLE_SPEED = 8
-    GEAR = 9
-    BATTERY_VOLTAGE = 10
-    MANIFOLD_PRESSURE = 11
-    FUEL_PRESSURE = 12
-    NUM_VALUES = 13
+from database import DatabaseColumn
 
 columns = [0.0] * int(DatabaseColumn.NUM_VALUES)
 columns[DatabaseColumn.TIMESTAMP] = 0
@@ -153,7 +136,7 @@ def data_network_send_thread_fn(sock):
         m.fuel_pressure = columns[DatabaseColumn.FUEL_PRESSURE]
         columns_lock.release()
         sock.sendto(bytes(m), (udp_ip, udp_port))
-        time.sleep(2.0)
+        time.sleep(1.0)
 
 def main():
     serial_thread = threading.Thread(target=serial_thread_fn, daemon=True)

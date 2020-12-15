@@ -16,3 +16,8 @@ class VehicleDataMsg(Structure):
             ("manifold_pressure", c_float),
             ("fuel_pressure", c_float),
             ]
+
+class HeartbeatMsg(Structure):
+    _fields_ = [
+            ("ack_num", c_uint64)
+            ]
