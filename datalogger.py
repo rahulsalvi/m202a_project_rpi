@@ -189,6 +189,7 @@ def client_catchup_thread_fn(sock):
             catchup(sock, datapoints)
         time.sleep(1.0)
 
+# useful for testing without anything hooked up
 def set_rpm_thread_fn():
     counter = 0
     while True:
